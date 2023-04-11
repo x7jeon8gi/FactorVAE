@@ -58,12 +58,12 @@ class FactorEncoder(nn.Module):
         return self.mapping_layer(portfolio_return)
 
 class AlphaLayer(nn.Module):
-    def __init__(self, hidden_size, num_factors):
+    def __init__(self, hidden_size):
         super(AlphaLayer, self).__init__()
         self.linear1 = nn.Linear(hidden_size, hidden_size)
         self.leakyrelu = nn.LeakyReLU()
-        self.mu_layer = nn.Linear(hidden_size, num_factors)
-        self.sigma_layer = nn.Linear(hidden_size, num_factors)
+        self.mu_layer = nn.Linear(hidden_size, 1)
+        self.sigma_layer = nn.Linear(hidden_size, 1)
         self.softplus = nn.Softplus()
         
     def forward(self, stock_latent):
@@ -78,12 +78,11 @@ class BetaLayer(nn.Module):
     """calcuate factor exposure beta(N*K)"""
     def __init__(self, hidden_size, num_factors):
         super(BetaLayer, self).__init__()
-        self.linear1 = nn.Linear(hidden_size, num_factor)
+        self.linear1 = nn.Linear(hidden_size, num_factors)
     
     def forward(self, stock_latent):
         beta = self.linear1(stock_latent)
         return beta
-        
         
 class FactorDecoder(nn.Module):
     def __init__(self, alpha_layer, beta_layer):
@@ -97,6 +96,7 @@ class FactorDecoder(nn.Module):
         return mu + eps * sigma
     
     def forward(self, stock_latent, factor_mu, factor_sigma):
+        #! warning: alpha_mu, alpha_sigma -> (N), (N)
         alpha_mu, alpha_sigma = self.alpha_layer(stock_latent)
         print(f"alpha_mu shape: {alpha_mu.shape}, alpha_sigma shape: {alpha_sigma.shape}")
         beta = self.beta_layer(stock_latent)
@@ -110,46 +110,26 @@ class FactorDecoder(nn.Module):
 
         return self.reparameterize(mu, sigma)
          
-class FactorVAE(nn.Module):
-    def __init__(self, factor_encoder, factor_decoder):
-        super(FactorVAE, self).__init__()
-        self.factor_encoder = factor_encoder
-        self.factor_decoder = factor_decoder
-    
-    def forward(self, stock_latent, returns):
-        #! x: (batch_size, seq_length, num_latent)
-        #! returns: (batch_size, 1)
-        factor_mu, factor_sigma = self.factor_encoder(stock_latent, returns)
-        return self.factor_decoder(stock_latent, factor_mu, factor_sigma), factor_mu, factor_sigma #! reconstruction, factor_mu, factor_sigma
-
-
 #todo attention layer 효율성 개선 필요: for loop 제거해야됨
-class FactorPredictor(nn.Module):
-    def __init__(self, batch_size, hidden_size, num_factor):
-        super(FactorPredictor, self).__init__()
 
-        # self.query_layer = nn.Linear(hidden_size, hidden_size)
+class AttentionLayer(nn.Module):
+    def __init__(self, hidden_size):
+        super(AttentionLayer, self).__init__()
+        
+        self.query = nn.Parameter(torch.randn(hidden_size))
         self.key_layer = nn.Linear(hidden_size, hidden_size)
         self.value_layer = nn.Linear(hidden_size, hidden_size)
-        
-        self.query = nn.Parameter(torch.randn(hidden_size)) #.repeat(batch_size, 1)
         self.dropout = nn.Dropout(0.1)
-        self.num_factor = num_factor
-        
-        self.linear = nn.Linear(hidden_size, hidden_size)
-        self.leakyrelu = nn.LeakyReLU()
-        self.mu_layer = nn.Linear(hidden_size, 1)
-        self.sigma_layer = nn.Linear(hidden_size, 1)
-        self.softplus = nn.Softplus()
-        
-    def calculate_attention(self, query, key, value):
-        #! query: (H), key: (N, H), value: (N, H) #* query를 제대로 정의하지 못하여 헷갈림
-        #! output: (K, H)
-        
+    
+    def forward(self, stock_latent):
         #* calculate attention weights
-        attention_weights = torch.matmul(query, key.transpose(1,0)) # (N)
+
+        self.key = self.key_layer(stock_latent)
+        self.value = self.value_layer(stock_latent)
+        
+        attention_weights = torch.matmul(self.query, self.key.transpose(1,0)) # (N)
         #* scaling
-        attention_weights = attention_weights / torch.sqrt(torch.tensor(key.shape[0]))
+        attention_weights = attention_weights / torch.sqrt(torch.tensor(self.key.shape[0]))
         # print(f"attention_weights shape: {attention_weights.shape}")
         attention_weights = self.dropout(attention_weights)
         attention_weights = F.relu(attention_weights) # max(0, x)
@@ -157,32 +137,85 @@ class FactorPredictor(nn.Module):
         
         #! calculate context vector
         #* 이걸 K개 만큼 쌓아서 올리면 K*H dimension이 나올 것
-        context_vector = torch.matmul(attention_weights, value) # (H)
+        context_vector = torch.matmul(attention_weights, self.value) # (H)
+        return context_vector 
+
+class FactorPredictor(nn.Module):
+    def __init__(self, batch_size, hidden_size, num_factor):
+        super(FactorPredictor, self).__init__()
         
-        return context_vector # , attention_weights
-    
-    def distribution_network(self, h_multi):
-        #todo dimension 일치 필요 
-        # h_multi: (num_factor, H)
+        # self.query_layer = nn.Linear(hidden_size, hidden_size)
+        self.hidden_size = hidden_size
+        self.batch_size = batch_size
+        self.num_factor = num_factor
+        # self.key_layer = nn.Linear(hidden_size, hidden_size)
+        # self.value_layer = nn.Linear(hidden_size, hidden_size)
+        self.attention_layers = nn.ModuleList([AttentionLayer(self.hidden_size) for _ in range(num_factor)])
         
-        h_multi = self.linear(h_multi) # (num_factor, H)
-        h_multi = self.leakyrelu(h_multi) 
-        mu = self.mu_layer(h_multi) # (num_factor, 1)
-        sigma = self.sigma_layer(h_multi) # (num_factor, 1)
-        sigma = self.softplus(sigma)        
-    
+        self.linear = nn.Linear(hidden_size, hidden_size)
+        self.leakyrelu = nn.LeakyReLU()
+        self.mu_layer = nn.Linear(hidden_size, 1)
+        self.sigma_layer = nn.Linear(hidden_size, 1)
+        self.softplus = nn.Softplus()
+
     def forward(self, stock_latent):
         #! 오직 stock latent만을 입력으로 받음 (N, H)
         
-        self.key = self.key_layer(stock_latent)
-        self.value = self.value_layer(stock_latent)
-        
-        h_multi = torch.stack([self.calculate_attention(self.query, self.key, self.value) for _ in range(self.num_factor)], dim=0)
-        # (num_factor, H)
-        
+        for i in range(self.num_factor):
+            attention_layer = self.attention_layers[i](stock_latent)
+            if i == 0:
+                h_multi = attention_layer
+            else:
+                h_multi = torch.cat((h_multi, attention_layer), dim=0)
+        h_multi = h_multi.view(self.num_factor, -1)
+
+        print("h_multi:", h_multi.shape)
         h_multi = self.linear(h_multi)
         h_multi = self.leakyrelu(h_multi)
         pred_mu = self.mu_layer(h_multi)
         pred_sigma = self.sigma_layer(h_multi)
         pred_sigma = self.softplus(pred_sigma)
+        pred_mu = pred_mu.view(-1)
+        pred_sigma = pred_sigma.view(-1)
         return pred_mu, pred_sigma
+
+class FactorVAE(nn.Module):
+    def __init__(self, feature_extractor, factor_encoder, factor_decoder, factor_predictor):
+        super(FactorVAE, self).__init__()
+        self.feature_extractor = feature_extractor
+        self.factor_encoder = factor_encoder
+        self.factor_decoder = factor_decoder
+        self.factor_predictor = factor_predictor
+
+    @staticmethod
+    def KL_Divergence(mu1, sigma1, mu2, sigma2):
+        #! mu1, mu2: (batch_size, 1)
+        #! sigma1, sigma2: (batch_size, 1)
+        #! output: (batch_size, 1)
+        kl_div = (torch.log(sigma2/ sigma1) + (sigma1**2 + (mu1 - mu2)**2) / (2 * sigma2**2) - 0.5).sum()
+        return kl_div
+
+    def forward(self, x, returns):
+        #! x: (batch_size, seq_length, num_latent)
+        #! returns: (batch_size, 1)
+        stock_latent = self.feature_extractor(x)
+        factor_mu, factor_sigma = self.factor_encoder(stock_latent, returns)
+        reconstruction = self.factor_decoder(stock_latent, factor_mu, factor_sigma)
+        pred_mu, pred_sigma = self.factor_predictor(stock_latent)
+
+        print(f"pred_mu: {pred_mu.shape}, pred_sigma: {pred_sigma.shape}")
+        # Define VAE loss function with reconstruction loss and KL divergence
+        reconstruction_loss = F.mse_loss(reconstruction, returns)
+        # Calculate KL divergence between two Gaussian distributions
+        kl_divergence = self.KL_Divergence(factor_mu, factor_sigma, pred_mu, pred_sigma)
+
+        vae_loss = reconstruction_loss + kl_divergence
+        return vae_loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma #! reconstruction, factor_mu, factor_sigma
+
+    # 학습 이후 사용
+    def prediction(self, x):
+        stock_latent = self.feature_extractor(x)
+        pred_mu, pred_sigma = self.factor_predictor(stock_latent)
+        y_pred = self.factor_decoder(stock_latent, pred_mu, pred_sigma)
+
+        return y_pred
