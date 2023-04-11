@@ -219,3 +219,27 @@ class FactorVAE(nn.Module):
         y_pred = self.factor_decoder(stock_latent, pred_mu, pred_sigma)
 
         return y_pred
+
+    
+num_latent = 20
+batch_size = 300 # equal to num of stocks
+seq_len = 30
+num_factor = 8
+hidden_size = 20
+
+test_char = torch.randn(batch_size, seq_len, num_latent) # (batch_size, seq_length, num_latent)
+test_returns = torch.randn(batch_size, 1) # (batch_size, 1)
+
+feature_extractor = FeatureExtractor(num_latent = num_latent, hidden_size =hidden_size)
+stock_latent = feature_extractor(test_char)
+
+factor_encoder = FactorEncoder(num_factors=num_factor, num_portfolio=num_latent, hidden_size=hidden_size)
+alpha_layer = AlphaLayer(hidden_size)
+beta_layer = BetaLayer(hidden_size, num_factor)
+factor_decoder = FactorDecoder(alpha_layer, beta_layer)
+factor_predictor = FactorPredictor(batch_size, hidden_size, num_factor)
+factorVAE = FactorVAE(feature_extractor, factor_encoder, factor_decoder, factor_predictor)
+
+vae_loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma = factorVAE(test_char, test_returns)
+
+print(vae_loss, factor_mu, factor_sigma, pred_mu, pred_sigma)
