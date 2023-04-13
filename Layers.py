@@ -1,9 +1,12 @@
+# GRU을 통한 feature extraction, 입력으로 주식들의 firm characteristic을 받아서, firm characteristic을 통해 주식의 latent vector를 추출
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import DataLoader, Dataset, TensorDataset
+import pandas as pd
+import numpy as np
 
-# GRU을 통한 feature extraction, 입력으로 주식들의 firm characteristic을 받아서, firm characteristic을 통해 주식의 latent vector를 추출
 class FeatureExtractor(nn.Module):
     def __init__(self, num_latent, hidden_size, num_layers=1):
         super(FeatureExtractor, self).__init__()
@@ -51,9 +54,9 @@ class FactorEncoder(nn.Module):
         weights = self.softmax(weights)
 
         # multiply weights and returns
-        print(f"weights shape: {weights.shape}, returns shape: {returns.shape}") # [256, 20], [256, 1]
+        #print(f"weights shape: {weights.shape}, returns shape: {returns.shape}") # [256, 20], [256, 1]
         portfolio_return = torch.mm(weights.transpose(1,0), returns) #* portfolio_return: (M, 1)
-        print(f"portfolio_return shape: {portfolio_return.shape}")
+        #print(f"portfolio_return shape: {portfolio_return.shape}")
         
         return self.mapping_layer(portfolio_return)
 
@@ -98,15 +101,15 @@ class FactorDecoder(nn.Module):
     def forward(self, stock_latent, factor_mu, factor_sigma):
         #! warning: alpha_mu, alpha_sigma -> (N), (N)
         alpha_mu, alpha_sigma = self.alpha_layer(stock_latent)
-        print(f"alpha_mu shape: {alpha_mu.shape}, alpha_sigma shape: {alpha_sigma.shape}")
+        #print(f"alpha_mu shape: {alpha_mu.shape}, alpha_sigma shape: {alpha_sigma.shape}")
         beta = self.beta_layer(stock_latent)
 
         factor_mu = factor_mu.view(-1, 1)
         factor_sigma = factor_sigma.view(-1, 1)
-        print(f"factor_mu shape: {factor_mu.shape}, factor_sigma shape: {factor_sigma.shape}")
-        print(f"beta shape: {beta.shape}")
+        #print(f"factor_mu shape: {factor_mu.shape}, factor_sigma shape: {factor_sigma.shape}")
+        #print(f"beta shape: {beta.shape}")
         mu = alpha_mu + torch.matmul(beta, factor_mu)
-        sigma = torch.sqrt(alpha_sigma**2 + torch.matmul(beta**2, factor_sigma**2))
+        sigma = torch.sqrt(alpha_sigma**2 + torch.matmul(beta**2, factor_sigma**2) + 1e-8)
 
         return self.reparameterize(mu, sigma)
          
@@ -129,7 +132,7 @@ class AttentionLayer(nn.Module):
         
         attention_weights = torch.matmul(self.query, self.key.transpose(1,0)) # (N)
         #* scaling
-        attention_weights = attention_weights / torch.sqrt(torch.tensor(self.key.shape[0]))
+        attention_weights = attention_weights / torch.sqrt(torch.tensor(self.key.shape[0])+ 1e-8)
         # print(f"attention_weights shape: {attention_weights.shape}")
         attention_weights = self.dropout(attention_weights)
         attention_weights = F.relu(attention_weights) # max(0, x)
@@ -169,7 +172,7 @@ class FactorPredictor(nn.Module):
                 h_multi = torch.cat((h_multi, attention_layer), dim=0)
         h_multi = h_multi.view(self.num_factor, -1)
 
-        print("h_multi:", h_multi.shape)
+        # print("h_multi:", h_multi.shape)
         h_multi = self.linear(h_multi)
         h_multi = self.leakyrelu(h_multi)
         pred_mu = self.mu_layer(h_multi)
@@ -203,13 +206,14 @@ class FactorVAE(nn.Module):
         reconstruction = self.factor_decoder(stock_latent, factor_mu, factor_sigma)
         pred_mu, pred_sigma = self.factor_predictor(stock_latent)
 
-        print(f"pred_mu: {pred_mu.shape}, pred_sigma: {pred_sigma.shape}")
+        # print(f"pred_mu: {pred_mu.shape}, pred_sigma: {pred_sigma.shape}")
         # Define VAE loss function with reconstruction loss and KL divergence
         reconstruction_loss = F.mse_loss(reconstruction, returns)
         # Calculate KL divergence between two Gaussian distributions
         kl_divergence = self.KL_Divergence(factor_mu, factor_sigma, pred_mu, pred_sigma)
 
         vae_loss = reconstruction_loss + kl_divergence
+        # print("loss: ", vae_loss)
         return vae_loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma #! reconstruction, factor_mu, factor_sigma
 
     # 학습 이후 사용
