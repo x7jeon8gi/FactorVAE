@@ -14,6 +14,7 @@ class FeatureExtractor(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         
+        self.normalize = nn.LayerNorm(num_latent)
         self.linear = nn.Linear(num_latent, num_latent)
         self.leakyrelu = nn.LeakyReLU()
         self.gru = nn.GRU(num_latent, hidden_size, num_layers, batch_first=True)
@@ -21,12 +22,13 @@ class FeatureExtractor(nn.Module):
     def forward(self, x):
         #! x: (batch_size, seq_length, num_latent)
         # Apply linear and LeakyReLU activation
+        #* layer norm 추가
+        x = self.normalize(x)
         out = self.linear(x)
         out = self.leakyrelu(out)
         # Forward propagate GRU
         stock_latent, _ = self.gru(out)
         return stock_latent[:,-1,:] #* stock_latent[-1]: (batch_size, hidden_size)
-    
 
 class FactorEncoder(nn.Module):
     def __init__(self, num_factors, num_portfolio, hidden_size):
@@ -51,10 +53,13 @@ class FactorEncoder(nn.Module):
         #! returns: (batch_size, 1) (딱 한 기간의 수익률)
         #! make portfolio
         weights = self.linear(stock_latent)
-        weights = self.softmax(weights)
+        weights = self.softmax(weights) # (batch_size, num_portfolio)
 
         # multiply weights and returns
-        #print(f"weights shape: {weights.shape}, returns shape: {returns.shape}") # [256, 20], [256, 1]
+        #print(f"weights shape: {weights.shape}, returns shape: {returns.shape}") # [300, 20], [300, 1]
+        # check returns.shape is tuple
+        if returns.dim() == 1:
+            returns = returns.unsqueeze(1)
         portfolio_return = torch.mm(weights.transpose(1,0), returns) #* portfolio_return: (M, 1)
         #print(f"portfolio_return shape: {portfolio_return.shape}")
         
@@ -106,10 +111,13 @@ class FactorDecoder(nn.Module):
 
         factor_mu = factor_mu.view(-1, 1)
         factor_sigma = factor_sigma.view(-1, 1)
+
+        # Replace any zero values in factor_sigma with a small value
+        factor_sigma[factor_sigma == 0] = 1e-6
         #print(f"factor_mu shape: {factor_mu.shape}, factor_sigma shape: {factor_sigma.shape}")
         #print(f"beta shape: {beta.shape}")
         mu = alpha_mu + torch.matmul(beta, factor_mu)
-        sigma = torch.sqrt(alpha_sigma**2 + torch.matmul(beta**2, factor_sigma**2) + 1e-8)
+        sigma = torch.sqrt(alpha_sigma**2 + torch.matmul(beta**2, factor_sigma**2) + 1e-6)
 
         return self.reparameterize(mu, sigma)
          
@@ -132,7 +140,7 @@ class AttentionLayer(nn.Module):
         
         attention_weights = torch.matmul(self.query, self.key.transpose(1,0)) # (N)
         #* scaling
-        attention_weights = attention_weights / torch.sqrt(torch.tensor(self.key.shape[0])+ 1e-8)
+        attention_weights = attention_weights / torch.sqrt(torch.tensor(self.key.shape[0])+ 1e-6)
         # print(f"attention_weights shape: {attention_weights.shape}")
         attention_weights = self.dropout(attention_weights)
         attention_weights = F.relu(attention_weights) # max(0, x)
@@ -140,8 +148,11 @@ class AttentionLayer(nn.Module):
         
         #! calculate context vector
         #* 이걸 K개 만큼 쌓아서 올리면 K*H dimension이 나올 것
-        context_vector = torch.matmul(attention_weights, self.value) # (H)
-        return context_vector 
+        if torch.isnan(attention_weights).any() or torch.isinf(attention_weights).any():
+            return torch.zeros_like(self.value[0])
+        else:
+            context_vector = torch.matmul(attention_weights, self.value) # (H)
+            return context_vector 
 
 class FactorPredictor(nn.Module):
     def __init__(self, batch_size, hidden_size, num_factor):
@@ -182,7 +193,7 @@ class FactorPredictor(nn.Module):
         pred_sigma = pred_sigma.view(-1)
         return pred_mu, pred_sigma
 
-class FactorVAE(nn.Module):
+class FactorVAE_old(nn.Module):
     def __init__(self, feature_extractor, factor_encoder, factor_decoder, factor_predictor):
         super(FactorVAE, self).__init__()
         self.feature_extractor = feature_extractor
@@ -210,6 +221,66 @@ class FactorVAE(nn.Module):
         # Define VAE loss function with reconstruction loss and KL divergence
         reconstruction_loss = F.mse_loss(reconstruction, returns)
         # Calculate KL divergence between two Gaussian distributions
+        if torch.any(pred_sigma == 0):
+            pred_sigma[pred_sigma == 0] = 1e-6
+        kl_divergence = self.KL_Divergence(factor_mu, factor_sigma, pred_mu, pred_sigma)
+
+        vae_loss = reconstruction_loss + kl_divergence
+        # print("loss: ", vae_loss)
+        return vae_loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma #! reconstruction, factor_mu, factor_sigma
+
+    # 학습 이후 사용
+    def prediction(self, x):
+        stock_latent = self.feature_extractor(x)
+        pred_mu, pred_sigma = self.factor_predictor(stock_latent)
+        y_pred = self.factor_decoder(stock_latent, pred_mu, pred_sigma)
+
+        return y_pred
+    
+class FactorVAE(nn.Module):
+    def __init__(self, feature_extractor, factor_encoder, factor_decoder, factor_predictor):
+        super(FactorVAE, self).__init__()
+        self.feature_extractor = feature_extractor
+        self.factor_encoder = factor_encoder
+        self.factor_decoder = factor_decoder
+        self.factor_predictor = factor_predictor
+
+    @staticmethod
+    def KL_Divergence(mu1, sigma1, mu2, sigma2):
+        #! mu1, mu2: (batch_size, 1)
+        #! sigma1, sigma2: (batch_size, 1)
+        #! output: (batch_size, 1)
+        kl_div = (torch.log(sigma2/ sigma1) + (sigma1**2 + (mu1 - mu2)**2) / (2 * sigma2**2) - 0.5).sum()
+        return kl_div
+
+    def forward(self, x, returns):
+        #! x: (batch_size, seq_length, num_latent)
+        #! returns: (batch_size, 1)
+
+        stock_latent = self.feature_extractor(x)
+        factor_mu, factor_sigma = self.factor_encoder(stock_latent, returns)
+        reconstruction = self.factor_decoder(stock_latent, factor_mu, factor_sigma)
+        pred_mu, pred_sigma = self.factor_predictor(stock_latent)
+
+        # print(f"pred_mu: {pred_mu.shape}, pred_sigma: {pred_sigma.shape}")
+        # Define VAE loss function with reconstruction loss and KL divergence
+        #* Some adjustment
+        #* stock_adj: number of stocks that have no return data
+        stock_adj = 0
+        for i in range(len(returns)-1,-1,-1):
+            if returns[i] == 0:
+                stock_adj += 1
+            else:
+                break
+
+        if stock_adj > 0:
+            reconstruction_loss = F.mse_loss(reconstruction[:-stock_adj], returns[:-stock_adj])
+        else:
+            reconstruction_loss = F.mse_loss(reconstruction, returns)
+            
+        # Calculate KL divergence between two Gaussian distributions
+        if torch.any(pred_sigma == 0):
+            pred_sigma[pred_sigma == 0] = 1e-6
         kl_divergence = self.KL_Divergence(factor_mu, factor_sigma, pred_mu, pred_sigma)
 
         vae_loss = reconstruction_loss + kl_divergence
@@ -224,7 +295,7 @@ class FactorVAE(nn.Module):
 
         return y_pred
 
-    
+#%%    
 num_latent = 20
 batch_size = 300 # equal to num of stocks
 seq_len = 30
