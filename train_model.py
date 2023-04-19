@@ -1,55 +1,83 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.utils.data import DataLoader, Dataset, TensorDataset
+import pandas as pd
+import numpy as np
 import wandb
-def train(factor_model, dataloader, optimizer):
+from tqdm.auto import tqdm
+
+def train(factor_model, dataloader, optimizer, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     factor_model.to(device)
     factor_model.train()
     total_loss = 0
-    for char, returns in dataloader:
-        inputs = char[:,:,:-1].to(device)
-        labels = returns.to(device)
-        optimizer.zero_grad()
-        loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma = factor_model(inputs, labels)
-        total_loss += loss.item() * inputs.size(0)
-        loss.backward()
-        optimizer.step()
+    with tqdm(total=len(dataloader)-args.seq_len+1) as pbar:
+        for char, returns in dataloader:
+            if char.shape[1] != args.seq_len:
+                continue
+            inputs = char.to(device)
+            labels = returns[:,-1].reshape(-1,1).to(device)
+            inputs = inputs.float()
+            labels = labels.float()
+            
+            optimizer.zero_grad()
+            loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma = factor_model(inputs, labels)
+            total_loss += loss.item() * inputs.size(0)
+            loss.backward()
+            optimizer.step()
+            pbar.update(1)
+        # print(loss)
     avg_loss = total_loss / len(dataloader.dataset)
-    wandb.log({"Train Loss": avg_loss})
     return avg_loss
 
 
-def validate(factor_model, dataloader):
+@torch.no_grad()
+def validate(factor_model, dataloader, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     factor_model.to(device)
     factor_model.eval()
     total_loss = 0
-    with torch.no_grad():
+    with tqdm(total=len(dataloader)-args.seq_len+1) as pbar:
         for char, returns in dataloader:
-            inputs = char[:,:,:-1].to(device)
-            labels = returns.to(device)
+            if char.shape[1] != args.seq_len:
+                continue
+            inputs = char.to(device)
+            labels = returns[:,-1].reshape(-1,1).to(device)
+            inputs = inputs.float()
+            labels = labels.float()
+            
             loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma = factor_model(inputs, labels)
             total_loss += loss.item() * inputs.size(0)
+            pbar.update(1)
     avg_loss = total_loss / len(dataloader.dataset)
-    wandb.log({"Validation Loss": avg_loss})
     return avg_loss
 
-def test(factor_model, dataloader):
+@torch.no_grad()
+def test(factor_model, dataloader, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     factor_model.to(device)
     factor_model.eval()
     total_loss = 0
-    with torch.no_grad():
+    with tqdm(total=len(dataloader)-args.seq_len+1) as pbar:
         for char, returns in dataloader:
-            inputs = char[:,:,:-1].to(device)
-            labels = returns.to(device)
+            if char.shape[1] != args.seq_len:
+                continue
+            inputs = char.to(device)
+            labels = returns[:,-1].reshape(-1,1).to(device)
+            inputs = inputs.float()
+            labels = labels.float()
+            
             loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma = factor_model(inputs, labels)
             total_loss += loss.item() * inputs.size(0)
+            pbar.update(1)
     avg_loss = total_loss / len(dataloader.dataset)
-    wandb.log({"Test Loss": avg_loss})
     return avg_loss
 
 def run(factor_model, train_loader, val_loader, test_loader, lr, num_epochs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    wandb.init(project="FactorVAE", name="replicate")
+    # wandb.init(project="FactorVAE", name="replicate")
     factor_model.to(device)
     best_val_loss = float('inf')
     optimizer = torch.optim.AdamW(factor_model.parameters(), lr=lr)
@@ -61,4 +89,3 @@ def run(factor_model, train_loader, val_loader, test_loader, lr, num_epochs):
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(factor_model.state_dict(), 'best_model.pt')
-    wandb.finish()
