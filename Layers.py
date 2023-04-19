@@ -120,8 +120,6 @@ class FactorDecoder(nn.Module):
         sigma = torch.sqrt(alpha_sigma**2 + torch.matmul(beta**2, factor_sigma**2) + 1e-6)
 
         return self.reparameterize(mu, sigma)
-         
-#todo attention layer 효율성 개선 필요: for loop 제거해야됨
 
 class AttentionLayer(nn.Module):
     def __init__(self, hidden_size):
@@ -147,7 +145,6 @@ class AttentionLayer(nn.Module):
         attention_weights = F.softmax(attention_weights, dim=0) # (N)
         
         #! calculate context vector
-        #* 이걸 K개 만큼 쌓아서 올리면 K*H dimension이 나올 것
         if torch.isnan(attention_weights).any() or torch.isinf(attention_weights).any():
             return torch.zeros_like(self.value[0])
         else:
@@ -158,12 +155,9 @@ class FactorPredictor(nn.Module):
     def __init__(self, batch_size, hidden_size, num_factor):
         super(FactorPredictor, self).__init__()
         
-        # self.query_layer = nn.Linear(hidden_size, hidden_size)
         self.hidden_size = hidden_size
         self.batch_size = batch_size
         self.num_factor = num_factor
-        # self.key_layer = nn.Linear(hidden_size, hidden_size)
-        # self.value_layer = nn.Linear(hidden_size, hidden_size)
         self.attention_layers = nn.ModuleList([AttentionLayer(self.hidden_size) for _ in range(num_factor)])
         
         self.linear = nn.Linear(hidden_size, hidden_size)
