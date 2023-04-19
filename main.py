@@ -18,7 +18,7 @@ import wandb
 
 parser = argparse.ArgumentParser(description='Train a FactorVAE model on stock data')
 
-parser.add_argument('--num_epochs', type=int, default=50, help='number of epochs to train for') #? 30할까?
+parser.add_argument('--num_epochs', type=int, default=50, help='number of epochs to train for')
 parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=300, help='batch size')
 parser.add_argument('--num_latent', type=int, default=20, help='number of latent variables')
@@ -94,7 +94,7 @@ def main(args, data_args):
     for epoch in tqdm(range(args.num_epochs)):
         train_loss = train(factorVAE, train_dataloader, optimizer, args)
         val_loss = validate(factorVAE, valid_dataloader, args)
-        test_loss = np.NaN #test(factorVAE, test_dataloader, args) # TEST만 느려지는 버그 발생
+        test_loss = np.NaN #test(factorVAE, test_dataloader, args)
         scheduler.step()
         print(f"Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}") #Test Loss: {test_loss:.4f},
         if val_loss < best_val_loss:
