@@ -1,4 +1,4 @@
-순서</br>
+order</br>
 {args.run_name}_
 {args.num_factor}_
 {args.normalize}_
