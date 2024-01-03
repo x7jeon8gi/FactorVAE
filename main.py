@@ -10,7 +10,7 @@ import seaborn as sns
 import os
 from tqdm.auto import tqdm
 import argparse
-from Layers import FactorVAE, FeatureExtractor, FactorDecoder, FactorEncoder, FactorPredictor, AlphaLayer, BetaLayer
+from module import FactorVAE, FeatureExtractor, FactorDecoder, FactorEncoder, FactorPredictor, AlphaLayer, BetaLayer
 from dataset import StockDataset
 from train_model import train, validate, test
 from utils import set_seed, DataArgument
@@ -28,7 +28,7 @@ parser.add_argument('--hidden_size', type=int, default=20, help='hidden size')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
 parser.add_argument('--run_name', type=str, help='name of the run')
 parser.add_argument('--save_dir', type=str, default='./best_models', help='directory to save model')
-parser.add_argument('--num_workers', type=int, default=0, help='number of workers for dataloader')
+parser.add_argument('--num_workers', type=int, default=4, help='number of workers for dataloader')
 parser.add_argument('--wandb', action='store_true', help='whether to use wandb')
 parser.add_argument('--normalize', action='store_true', help='whether to normalize the data')
 args = parser.parse_args()
@@ -76,11 +76,12 @@ def main(args, data_args):
     valid_ds = StockDataset(valid_df, args.batch_size, args.seq_len)
     #test_ds = StockDataset(test_df, args.batch_size, args.seq_len)
     
-    train_dataloader = DataLoader(train_ds, batch_size=300, shuffle=True, num_workers=args.num_workers, pin_memory=True)
+    train_dataloader = DataLoader(train_ds, batch_size=300, shuffle=True, num_workers=args.num_workers, pin_memory=True, persistent_workers=True)
     valid_dataloader = DataLoader(valid_ds, batch_size=300, shuffle=False, num_workers=args.num_workers, pin_memory=True)
     #test_dataloader = DataLoader(test_ds, batch_size=300, shuffle=False, num_workers=4)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"*************** Using {device} ***************")
     args.device = device
         
     factorVAE.to(device)

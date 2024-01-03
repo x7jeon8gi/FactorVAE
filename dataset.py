@@ -57,23 +57,20 @@ class StockDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
 
-        # 현재 인덱스에 해당하는 그룹과 시작 위치를 선택
         group_name, group_start_idx = self.group_indices[idx]
 
-        # 해당 그룹의 데이터를 추출
         group = self.instrument_groups.get_group(group_name)
         group = group.fillna(method='ffill')
         group = group.fillna(0)
-        
-        # 시작 위치부터 시퀀스 길이만큼 데이터를 추출
+
         data = group.iloc[group_start_idx:group_start_idx + self.sequence_length]
         
-        # 입력 데이터와 레이블 데이터 분리
-        input_data = data.drop('LABEL0', axis=1).values  # 마지막 열을 제외한 모든 데이터
-        label = data['LABEL0'].values  # 마지막 열
+        input_data = data.drop('LABEL0', axis=1).values 
+        label = data['LABEL0'].values 
 
         return input_data, label
 
+        #### BUG ####
         # input_data = []
         # label_data = []
         

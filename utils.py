@@ -3,7 +3,7 @@ import numpy as np
 import random
 import os
 from dataclasses import dataclass, field
-from Layers import *
+from module import *
 from tqdm import tqdm
 
 def set_seed(seed):

@@ -13,8 +13,8 @@ def train(factor_model, dataloader, optimizer, args):
     factor_model.to(device)
     factor_model.train()
     total_loss = 0
-    with tqdm(total=len(dataloader)) as pbar: # -args.seq_len+1
-        for char, returns in dataloader:
+    with tqdm(total=len(dataloader), desc="Training") as pbar:
+        for char, returns in dataloader: # -args.seq_len+1
             if char.shape[1] != args.seq_len:
                 continue
             inputs = char.to(device)
@@ -27,6 +27,7 @@ def train(factor_model, dataloader, optimizer, args):
             total_loss += loss.item() * inputs.size(0)
             loss.backward()
             optimizer.step()
+            pbar.set_postfix({'loss': loss.item()})
             pbar.update(1)
         # print(loss)
     avg_loss = total_loss / len(dataloader.dataset)
@@ -39,7 +40,7 @@ def validate(factor_model, dataloader, args):
     factor_model.to(device)
     factor_model.eval()
     total_loss = 0
-    with tqdm(total=len(dataloader)) as pbar:
+    with tqdm(total=len(dataloader), desc="Validation") as pbar:
         for char, returns in dataloader:
             if char.shape[1] != args.seq_len:
                 continue
