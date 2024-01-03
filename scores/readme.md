@@ -4,4 +4,4 @@
 {args.normalize}_
 {args.select_feature}_
 {args.num_latent}_
-{args.hidden_size}.csv")
+{args.hidden_size}.csv"

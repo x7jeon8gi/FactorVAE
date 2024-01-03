@@ -4,6 +4,7 @@ import random
 import os
 from dataclasses import dataclass, field
 from Layers import *
+from tqdm import tqdm
 
 def set_seed(seed):
     random.seed(seed)

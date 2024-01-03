@@ -1,0 +1,6 @@
+data/*.csv
+data/*.pkl
+data/*
+.vscode/*
+__pycache__/*
+wandb/*

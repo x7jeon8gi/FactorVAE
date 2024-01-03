@@ -11,23 +11,24 @@ import os
 from tqdm.auto import tqdm
 import argparse
 from Layers import FactorVAE, FeatureExtractor, FactorDecoder, FactorEncoder, FactorPredictor, AlphaLayer, BetaLayer
-from stockdata import StockDataset
+from dataset import StockDataset
 from train_model import train, validate, test
 from utils import set_seed, DataArgument
 import wandb
 
 parser = argparse.ArgumentParser(description='Train a FactorVAE model on stock data')
 
-parser.add_argument('--num_epochs', type=int, default=50, help='number of epochs to train for')
-parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
+parser.add_argument('--num_epochs', type=int, default=100, help='number of epochs to train for')
+parser.add_argument('--lr', type=float, default=0.0003, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=300, help='batch size')
-parser.add_argument('--num_latent', type=int, default=20, help='number of latent variables')
+parser.add_argument('--num_latent', type=int, default=158, help='number of variables')
 parser.add_argument('--seq_len', type=int, default=20, help='sequence length')
-parser.add_argument('--num_factor', type=int, default=8, help='number of factors')
+parser.add_argument('--num_factor', type=int, default=48, help='number of factors')
 parser.add_argument('--hidden_size', type=int, default=20, help='hidden size')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
 parser.add_argument('--run_name', type=str, help='name of the run')
 parser.add_argument('--save_dir', type=str, default='./best_models', help='directory to save model')
+parser.add_argument('--num_workers', type=int, default=0, help='number of workers for dataloader')
 parser.add_argument('--wandb', action='store_true', help='whether to use wandb')
 parser.add_argument('--normalize', action='store_true', help='whether to normalize the data')
 args = parser.parse_args()
@@ -50,9 +51,6 @@ else:
     valid_df = pd.read_pickle('./data/valid_csi300.pkl')
     test_df = pd.read_pickle('./data/test_csi300.pkl')
     
-if args.wandb:
-    wandb.init(project="FactorVAE", config=args, name=f"{args.run_name}")
-    wandb.config.update(args)
     # wandb.log({"train_df": train_df, "valid_df": valid_df, "test_df": test_df})
 
 
@@ -78,8 +76,8 @@ def main(args, data_args):
     valid_ds = StockDataset(valid_df, args.batch_size, args.seq_len)
     #test_ds = StockDataset(test_df, args.batch_size, args.seq_len)
     
-    train_dataloader = DataLoader(train_ds, batch_size=300, shuffle=False, num_workers=4)
-    valid_dataloader = DataLoader(valid_ds, batch_size=300, shuffle=False, num_workers=4)
+    train_dataloader = DataLoader(train_ds, batch_size=300, shuffle=True, num_workers=args.num_workers, pin_memory=True)
+    valid_dataloader = DataLoader(valid_ds, batch_size=300, shuffle=False, num_workers=args.num_workers, pin_memory=True)
     #test_dataloader = DataLoader(test_ds, batch_size=300, shuffle=False, num_workers=4)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -90,13 +88,17 @@ def main(args, data_args):
     optimizer = torch.optim.Adam(factorVAE.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, steps_per_epoch=len(train_dataloader), epochs=args.num_epochs)
     
+    if args.wandb:
+        wandb.init(project="FactorVAE", config=args, name=f"{args.run_name}")
+        wandb.config.update(args)
+
     # Start Trainig
     for epoch in tqdm(range(args.num_epochs)):
         train_loss = train(factorVAE, train_dataloader, optimizer, args)
         val_loss = validate(factorVAE, valid_dataloader, args)
-        test_loss = np.NaN #test(factorVAE, test_dataloader, args)
+
         scheduler.step()
-        print(f"Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}") #Test Loss: {test_loss:.4f},
+        print(f"Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}") 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             #? save model in save_dir
@@ -106,7 +108,7 @@ def main(args, data_args):
             torch.save(factorVAE.state_dict(), save_root)
             
         if args.wandb:
-            wandb.log({"Train Loss": train_loss, "Validation Loss": val_loss}) #, "Test Loss": test_loss})
+            wandb.log({"Train Loss": train_loss, "Validation Loss": val_loss}) 
     
     if args.wandb:
         wandb.log({"Best Validation Loss": best_val_loss})

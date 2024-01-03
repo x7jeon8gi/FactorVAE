@@ -28,9 +28,9 @@ parser.add_argument('--val_end_time', type=str, default='2018-12-31', help='val 
 
 parser.add_argument('--seq_len', type=int, default=20, help='sequence length')
 
-parser.add_argument('--normalize', action='store_true', help='whether to normalize')
-parser.add_argument('--select_feature', action='store_true', help='whether to select feature')
-parser.add_argument('--use_qlib', action='store_true', help='whether to use qlib data')
+parser.add_argument('--normalize', default=True, action='store_true', help='whether to normalize')
+parser.add_argument('--select_feature', default=False, action='store_true', help='whether to select feature')
+parser.add_argument('--use_qlib', default=False , action='store_true', help='whether to use qlib data')
 args = parser.parse_args()
 
 
@@ -93,9 +93,9 @@ def main(args):
                                                         "valid": ("2018-01-01", "2018-12-31"), \
                                                         "test": ("2019-01-01", "2020-10-01")}, step_len=args.seq_len)
         
-        train = r_data_h.prepare("train", col_set=["feature", "label"], data_key=DatasetH.DK_L)
-        valid = r_data_h.prepare("valid", col_set=["feature", "label"], data_key=DatasetH.DK_L)
-        test = r_data_h.prepare("test", col_set=["feature", "label"], data_key=DatasetH.DK_I)
+        train = r_data_h.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+        valid = r_data_h.prepare("valid", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+        test = r_data_h.prepare("test", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
     
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir) 

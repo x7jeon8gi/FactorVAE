@@ -20,60 +20,71 @@ class StockDataset(torch.utils.data.Dataset):
         self.num_stock = num_stock
         self.sequence_length = sequence_length
         
-        self.groups = df.groupby('datetime')
-        self.rows_to_keep = []
+        self.df = self.df.dropna(subset=['LABEL0'])
 
-        for _, group in self.groups:
-            # drop row if their LABEL0 is NaN
-            group = group.dropna(subset=['LABEL0'], axis=0)
-
-            #? 도대체 수익률이 전혀 없는 날짜 무엇?
-            if len(group) == 0:
-                continue
-            
-            elif len(group) < num_stock:
-                new_group = pd.DataFrame(np.nan, index=np.arange(num_stock), columns=df.columns)
-                new_group.iloc[:len(group), :] = group.values
-                
-                # create MultiIndex with stock name and date
-                new_stock_names = pd.Index(['empty' for i in range(1, num_stock-len(group)+1)])
-                                
-                dates = group.index.get_level_values(0).unique()
-                new_index = pd.MultiIndex.from_product([dates, new_stock_names])
-                merged_index = group.index.append(new_index)
-                new_group = new_group.set_index(merged_index)
-                
-                # sort by LABEL0
-                new_group = new_group.sort_values(by='LABEL0', ascending=False)
-                new_group = new_group.fillna(0)
-
-                self.rows_to_keep.append(new_group)
-                
-                assert len(new_group) == num_stock, 'new_group should have num_stock number of rows'
-            else:
-                self.rows_to_keep.append(group)
-                
-        self.df = pd.concat(self.rows_to_keep) # , ignore_index=True)
-        
+        self.df = self.df.groupby('datetime').apply(lambda group: self._adjust_group(group, num_stock))
+        self.df.index = self.df.index.droplevel(0)        
         assert self.df['LABEL0'].isnull().sum() == 0, 'LABEL0 column should not contain any NaN values'
+
+        self.instrument_groups = df.groupby('instrument')
+        self.group_indices = []
+        for name, group in self.instrument_groups:
+            # group의 인덱스는 0부터 시작하여 group의 길이만큼 연속적인 값이 됨
+            indices = [(name, i) for i in range(len(group) - sequence_length + 1)]
+            self.group_indices.extend(indices)
+
+
+    def _adjust_group(self, group, num_stock):
+        if len(group) == 0:
+            return group
         
-        #self.input_size = sequence_length * len(self.df.columns)  # calculate input size based on 30 days of data
+        elif len(group) < num_stock:
+            additional_rows = num_stock - len(group)
+
+            dates = group.index.get_level_values(0).unique()
+            empty_stock_names = ['empty' for _ in range(additional_rows)]
+            new_index = pd.MultiIndex.from_product([dates, empty_stock_names], names=['datetime', 'stock_name'])
+            extra_data = pd.DataFrame(0, index=new_index, columns=group.columns)
+            group = pd.concat([group, extra_data])
+
+        group.sort_values(by='LABEL0', ascending=False)    
+
+        return group
 
     def __len__(self):
-        return len(self.df) - self.sequence_length +1  # subtract 30 to account for accumulation of 30 days of data
+        return len(self.group_indices)
+        # return len(self.df) - self.sequence_length +1  # subtract 30 to account for accumulation of 30 days of data
 
     def __getitem__(self, idx):
-        input_data = []
-        label_data = []
-        
-        idx_list = [300*i + idx for i in range(self.sequence_length) if 300*i + idx < len(self.df)]
 
-        data = self.df.iloc[idx_list, :-1].values #(seq_len, character)
-        label = self.df.iloc[idx_list, -1].values #(seq_len, 1)
+        # 현재 인덱스에 해당하는 그룹과 시작 위치를 선택
+        group_name, group_start_idx = self.group_indices[idx]
+
+        # 해당 그룹의 데이터를 추출
+        group = self.instrument_groups.get_group(group_name)
+        group = group.fillna(method='ffill')
+        group = group.fillna(0)
         
-        input_data.append(data)
-        input_data = np.concatenate(input_data, axis=0)
-        label_data.append(label)        
+        # 시작 위치부터 시퀀스 길이만큼 데이터를 추출
+        data = group.iloc[group_start_idx:group_start_idx + self.sequence_length]
         
-        # label 도출 값은 반드시 잘라서 써야함.
+        # 입력 데이터와 레이블 데이터 분리
+        input_data = data.drop('LABEL0', axis=1).values  # 마지막 열을 제외한 모든 데이터
+        label = data['LABEL0'].values  # 마지막 열
+
         return input_data, label
+
+        # input_data = []
+        # label_data = []
+        
+        # idx_list = [300*i + idx for i in range(self.sequence_length) if 300*i + idx < len(self.df)]
+
+        # data = self.df.iloc[idx_list, :-1].values #(seq_len, character)
+        # label = self.df.iloc[idx_list, -1].values #(seq_len, 1)
+        
+        # input_data.append(data)
+        # input_data = np.concatenate(input_data, axis=0)
+        # label_data.append(label)        
+        
+        # # label 도출 값은 반드시 잘라서 써야함.
+        # return input_data, label

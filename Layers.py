@@ -37,15 +37,16 @@ class FactorEncoder(nn.Module):
         self.linear = nn.Linear(hidden_size, num_portfolio)
         self.softmax = nn.Softmax(dim=1)
         
-        self.linear2 = nn.Linear(num_portfolio, num_factors)
+        self.linear_mu = nn.Linear(num_portfolio, num_factors)
+        self.linear_sigma = nn.Linear(num_portfolio, num_factors)
         self.softplus = nn.Softplus()
         
     def mapping_layer(self, portfolio_return):
         #! portfolio_return: (batch_size, 1)
         #! mapping layer
         # print(portfolio_return.shape)
-        mean = self.linear2(portfolio_return.squeeze(1))
-        sigma = self.softplus(mean)
+        mean = self.linear_mu(portfolio_return.squeeze(1))
+        sigma = self.softplus(self.linear_sigma(portfolio_return.squeeze(1)))
         return mean, sigma
     
     def forward(self, stock_latent, returns):
@@ -290,25 +291,25 @@ class FactorVAE(nn.Module):
         return y_pred
 
 #%%    
-num_latent = 20
-batch_size = 300 # equal to num of stocks
-seq_len = 30
-num_factor = 8
-hidden_size = 20
+# num_latent = 20
+# batch_size = 300 # equal to num of stocks
+# seq_len = 30
+# num_factor = 8
+# hidden_size = 20
 
-test_char = torch.randn(batch_size, seq_len, num_latent) # (batch_size, seq_length, num_latent)
-test_returns = torch.randn(batch_size, 1) # (batch_size, 1)
+# test_char = torch.randn(batch_size, seq_len, num_latent) # (batch_size, seq_length, num_latent)
+# test_returns = torch.randn(batch_size, 1) # (batch_size, 1)
 
-feature_extractor = FeatureExtractor(num_latent = num_latent, hidden_size =hidden_size)
-stock_latent = feature_extractor(test_char)
+# feature_extractor = FeatureExtractor(num_latent = num_latent, hidden_size =hidden_size)
+# stock_latent = feature_extractor(test_char)
 
-factor_encoder = FactorEncoder(num_factors=num_factor, num_portfolio=num_latent, hidden_size=hidden_size)
-alpha_layer = AlphaLayer(hidden_size)
-beta_layer = BetaLayer(hidden_size, num_factor)
-factor_decoder = FactorDecoder(alpha_layer, beta_layer)
-factor_predictor = FactorPredictor(batch_size, hidden_size, num_factor)
-factorVAE = FactorVAE(feature_extractor, factor_encoder, factor_decoder, factor_predictor)
+# factor_encoder = FactorEncoder(num_factors=num_factor, num_portfolio=num_latent, hidden_size=hidden_size)
+# alpha_layer = AlphaLayer(hidden_size)
+# beta_layer = BetaLayer(hidden_size, num_factor)
+# factor_decoder = FactorDecoder(alpha_layer, beta_layer)
+# factor_predictor = FactorPredictor(batch_size, hidden_size, num_factor)
+# factorVAE = FactorVAE(feature_extractor, factor_encoder, factor_decoder, factor_predictor)
 
-vae_loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma = factorVAE(test_char, test_returns)
+# vae_loss, reconstruction, factor_mu, factor_sigma, pred_mu, pred_sigma = factorVAE(test_char, test_returns)
 
-print(vae_loss, factor_mu, factor_sigma, pred_mu, pred_sigma)
+# print(vae_loss, factor_mu, factor_sigma, pred_mu, pred_sigma)
