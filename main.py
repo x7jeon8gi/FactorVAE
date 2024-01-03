@@ -22,6 +22,7 @@ parser.add_argument('--num_epochs', type=int, default=100, help='number of epoch
 parser.add_argument('--lr', type=float, default=0.0003, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=300, help='batch size')
 parser.add_argument('--num_latent', type=int, default=158, help='number of variables')
+parser.add_argument('--num_portfolio', type=int, default=100, help='number of stocks')
 parser.add_argument('--seq_len', type=int, default=20, help='sequence length')
 parser.add_argument('--num_factor', type=int, default=48, help='number of factors')
 parser.add_argument('--hidden_size', type=int, default=20, help='hidden size')
@@ -63,7 +64,7 @@ def main(args, data_args):
     
     # create model
     feature_extractor = FeatureExtractor(num_latent=args.num_latent, hidden_size=args.hidden_size)
-    factor_encoder = FactorEncoder(num_factors=args.num_factor, num_portfolio=args.num_latent, hidden_size=args.hidden_size)
+    factor_encoder = FactorEncoder(num_factors=args.num_factor, num_portfolio=args.num_portfolio, hidden_size=args.hidden_size)
     alpha_layer = AlphaLayer(args.hidden_size)
     beta_layer = BetaLayer(args.hidden_size, args.num_factor)
     factor_decoder = FactorDecoder(alpha_layer, beta_layer)

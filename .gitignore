@@ -4,3 +4,5 @@ data/*
 .vscode/*
 __pycache__/*
 wandb/*
+best_models/*
+

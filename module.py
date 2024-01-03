@@ -35,7 +35,7 @@ class FactorEncoder(nn.Module):
         super(FactorEncoder, self).__init__()
         self.num_factors = num_factors
         self.linear = nn.Linear(hidden_size, num_portfolio)
-        self.softmax = nn.Softmax(dim=1)
+        self.softmax = nn.Softmax(dim=0) # * BUG Fixed: dim=1 -> dim=0
         
         self.linear_mu = nn.Linear(num_portfolio, num_factors)
         self.linear_sigma = nn.Linear(num_portfolio, num_factors)
@@ -51,7 +51,7 @@ class FactorEncoder(nn.Module):
     
     def forward(self, stock_latent, returns):
         #! stock_latent: (batch_size, hidden_size)
-        #! returns: (batch_size, 1) (딱 한 기간의 수익률)
+        #! returns: (batch_size, 1) (Returns for a single period)
         #! make portfolio
         weights = self.linear(stock_latent)
         weights = self.softmax(weights) # (batch_size, num_portfolio)
@@ -76,7 +76,7 @@ class AlphaLayer(nn.Module):
         self.softplus = nn.Softplus()
         
     def forward(self, stock_latent):
-        #* stock latent는 FeatureExtractor에서 나온 것 (batch_size, hidden_size)
+        #* The stock latent comes from the FeatureExtractor (batch_size, hidden_size)
         stock_latent = self.linear1(stock_latent)
         stock_latent = self.leakyrelu(stock_latent)
         alpha_mu = self.mu_layer(stock_latent)
@@ -168,7 +168,7 @@ class FactorPredictor(nn.Module):
         self.softplus = nn.Softplus()
 
     def forward(self, stock_latent):
-        #! 오직 stock latent만을 입력으로 받음 (N, H)
+        #! Take only stock latents as input (N, H)
         
         for i in range(self.num_factor):
             attention_layer = self.attention_layers[i](stock_latent)

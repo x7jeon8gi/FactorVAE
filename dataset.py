@@ -29,7 +29,7 @@ class StockDataset(torch.utils.data.Dataset):
         self.instrument_groups = df.groupby('instrument')
         self.group_indices = []
         for name, group in self.instrument_groups:
-            # group의 인덱스는 0부터 시작하여 group의 길이만큼 연속적인 값이 됨
+            # The index of the group will be a consecutive value starting at 0 and ending at the length of the group.
             indices = [(name, i) for i in range(len(group) - sequence_length + 1)]
             self.group_indices.extend(indices)
 
