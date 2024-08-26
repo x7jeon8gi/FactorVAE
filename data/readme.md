@@ -1,11 +1,13 @@
-I used Qlib's scripts to download the data.
-
-See the address below.
+I used Qlib's scripts to download the data.<br>
+See the address below.<br>
+```
 https://github.com/microsoft/qlib/tree/main/scripts/data_collector/yahoo
+```
+I vaguely recall that it took almost 24 hours to receive the data.<br>
 
-example
+* example
 1. download data to csv <br>
-python collector.py download_data --source_dir ~/.qlib/stock_data/source/cn_data --start 2020-01-01 --end 2020-12-31 --delay 1 --interval 1d --region CN --max_workers 8 --max_collector_count 2
+python collector.py download_data --source_dir ~/.qlib/stock_data/source/cn_data --start 2020-01-01 --end 2020-12-31 --delay 1 --interval 1d --region CN --max_collector_count 2
 2. normalize data <br>
 python collector.py normalize_data --source_dir ~/.qlib/stock_data/source/cn_data --normalize_dir ~/.qlib/stock_data/source/cn_1d_nor --region CN --interval 1d
 3. dump data from scripts folder <br>

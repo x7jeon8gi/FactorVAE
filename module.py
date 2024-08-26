@@ -153,11 +153,10 @@ class AttentionLayer(nn.Module):
             return context_vector 
 
 class FactorPredictor(nn.Module):
-    def __init__(self, batch_size, hidden_size, num_factor):
+    def __init__(self, hidden_size, num_factor):
         super(FactorPredictor, self).__init__()
         
         self.hidden_size = hidden_size
-        self.batch_size = batch_size
         self.num_factor = num_factor
         self.attention_layers = nn.ModuleList([AttentionLayer(self.hidden_size) for _ in range(num_factor)])
         
@@ -259,19 +258,7 @@ class FactorVAE(nn.Module):
 
         # print(f"pred_mu: {pred_mu.shape}, pred_sigma: {pred_sigma.shape}")
         # Define VAE loss function with reconstruction loss and KL divergence
-        #* Some adjustment
-        #* stock_adj: number of stocks that have no return data
-        stock_adj = 0
-        for i in range(len(returns)-1,-1,-1):
-            if returns[i] == 0:
-                stock_adj += 1
-            else:
-                break
-
-        if stock_adj > 0:
-            reconstruction_loss = F.mse_loss(reconstruction[:-stock_adj], returns[:-stock_adj])
-        else:
-            reconstruction_loss = F.mse_loss(reconstruction, returns)
+        reconstruction_loss = F.mse_loss(reconstruction, returns)
             
         # Calculate KL divergence between two Gaussian distributions
         if torch.any(pred_sigma == 0):

@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass, field
 from module import *
 from tqdm import tqdm
+from scipy.stats import spearmanr
 
 def set_seed(seed):
     random.seed(seed)
@@ -47,23 +48,21 @@ class DataArgument:
     normalize: bool = field(
         default=True,
     )
-    select_feature: bool = field(
-        default=True,
+    select_feature: str = field(
+        default=None,
     )
-    use_qlib: bool = field(
-        default=False,
-    )
+
 
 
 def load_model(args):
     feature_extractor = FeatureExtractor(num_latent = args.num_latent, hidden_size =args.hidden_size)
 
-    factor_encoder = FactorEncoder(num_factors=args.num_factor, num_portfolio=args.num_latent, hidden_size=args.hidden_size)
+    factor_encoder = FactorEncoder(num_factors=args.num_factor, num_portfolio=args.num_portfolio, hidden_size=args.hidden_size)
     alpha_layer = AlphaLayer(args.hidden_size)
     beta_layer = BetaLayer(args.hidden_size, args.num_factor)
 
     factor_decoder = FactorDecoder(alpha_layer, beta_layer)
-    factor_predictor = FactorPredictor(args.batch_size, args.hidden_size, args.num_factor)
+    factor_predictor = FactorPredictor(args.hidden_size, args.num_factor)
     factorVAE = FactorVAE(feature_extractor, factor_encoder, factor_decoder, factor_predictor)
     return factorVAE
 
@@ -77,23 +76,21 @@ def generate_prediction_scores(model, test_dataloader, test_dataset, args):
     model.eval()
     test_loss = 0
     ls = []
-    err = []
-    with tqdm(total=len(test_dataloader)-args.seq_length+1) as pbar:
-        for i, (char, _) in (enumerate(test_dataloader)):
+    
+    with tqdm(total=len(test_dataloader)) as pbar: # -args.seq_length+1
+        for i, (char, _) in enumerate(test_dataloader):
             char = char.to(device)
             if char.shape[1] != args.seq_length:
+                print("?")
                 continue
             predictions = model.prediction(char.float())
-            df = pd.DataFrame(predictions.cpu().numpy(), columns=['score'])
-            try:
-                index = test_dataset.index[(args.seq_length +i -1) * args.batch_size : (args.seq_length+i) * args.batch_size]
-                df.index = index
-                df.drop('empty', level='instrument',inplace=True)
-                ls.append(df)
-            except:
-                err.append(df)
+            ls.append(predictions.detach().cpu())
             pbar.update(1)
-    return pd.concat(ls), err
+
+    ls = torch.cat(ls, dim=0)
+    multi_index = pd.MultiIndex.from_tuples(test_dataset.get_index(), names=["datetime","instrument"])
+    ls = pd.DataFrame(ls.numpy(), index=multi_index, columns=['score'])
+    return ls
 
 @dataclass
 class test_args:
@@ -107,10 +104,28 @@ class test_args:
 
     hidden_size: int = 20
     num_latent: int = 20
-    
+    num_portfolio: int = 128
+
     save_dir='./best_model'
     use_qlib: bool = False
     
 
+def RankIC(df, column1='LABEL0', column2='Pred'):
+    ric_values_multiindex = []
+
+    for date in df.index.get_level_values(0).unique():
+        daily_data = df.loc[date].copy()
+        daily_data['LABEL0_rank'] = daily_data[column1].rank()
+        daily_data['pred_rank'] = daily_data[column2].rank()
+        ric, _ = spearmanr(daily_data['LABEL0_rank'], daily_data['pred_rank'])
+        ric_values_multiindex.append(ric)
+
+    if not ric_values_multiindex:
+        return np.nan, np.nan
+
+    ric = np.mean(ric_values_multiindex)
+    std = np.std(ric_values_multiindex)
+    ir = ric / std if std != 0 else np.nan
+    return pd.DataFrame({'RankIC': [ric], 'RankIC_IR': [ir]})
     
     
