@@ -139,7 +139,7 @@ class AttentionLayer(nn.Module):
         
         attention_weights = torch.matmul(self.query, self.key.transpose(1,0)) # (N)
         #* scaling
-        attention_weights = attention_weights / torch.sqrt(torch.tensor(self.key.shape[0])+ 1e-6)
+        attention_weights = attention_weights / torch.sqrt(torch.tensor(self.key.shape[1])+ 1e-6)
         # print(f"attention_weights shape: {attention_weights.shape}")
         attention_weights = self.dropout(attention_weights)
         attention_weights = F.relu(attention_weights) # max(0, x)
